@@ -1,14 +1,13 @@
 #Retrieval-Augmented Generation (RAG) in R
 
 # Chunks
-files <- list.files("docs", pattern = "\\.pdf$", full.names = TRUE)
+files <- list.files("docs", pattern = "\\.pdf$", full.names = T)
 docs  <- sapply(files, function(f) paste(pdf_text(f), collapse = "\n"))
 
 
 chunk_text <- function(text, chunk_size = 500, overlap = 100) {
   starts <- seq(1, nchar(text), by = chunk_size - overlap)
-  sapply(starts, function(s) substr(text, s, min(s + chunk_size - 1, nchar(text))))
-}
+  sapply(starts, function(s) substr(text, s, min(s + chunk_size - 1, nchar(text))))}
 
 chunks <- unlist(lapply(docs, chunk_text))
 
@@ -18,8 +17,7 @@ embed_text <- function(text) {
     req_body_json(list(model = "nomic-embed-text", input = text)) |>
     req_perform() |>
     resp_body_json()
-  unlist(resp$embeddings[[1]])
-}
+  unlist(resp$embeddings[[1]])}
 
 embeddings <- t(sapply(chunks, embed_text))
 
@@ -30,8 +28,7 @@ cosine_sim <- function(a, b) sum(a * b) / (sqrt(sum(a^2)) * sqrt(sum(b^2)))
 retrieve <- function(question, k = 3) {
   q_vec <- embed_text(question)
   sims  <- apply(embeddings, 1, cosine_sim, b = q_vec)
-  chunks[order(sims, decreasing = TRUE)[1:k]]
-}
+  chunks[order(sims, decreasing = T)[1:k]]}
          
 # Generation
 ask_rag <- function(question, k = 3) {
@@ -42,9 +39,8 @@ ask_rag <- function(question, k = 3) {
     "Context:\n", context, "\n\nQuestion: ", question
   )
   resp <- request("http://localhost:11434/api/generate") |>
-    req_body_json(list(model = "llama3.2", prompt = prompt, stream = FALSE)) |>
+    req_body_json(list(model = "llama3.2", prompt = prompt, stream = F)) |>
     req_timeout(120) |>
     req_perform() |>
     resp_body_json()
-  cat(resp$response)
-}
+  cat(resp$response)}
