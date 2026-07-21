@@ -1,6 +1,6 @@
 #Retrieval-Augmented Generation (RAG) in R
 
-# Load and chunk the documents 
+# Chunks
 files <- list.files("docs", pattern = "\\.pdf$", full.names = TRUE)
 docs  <- sapply(files, function(f) paste(pdf_text(f), collapse = "\n"))
 
