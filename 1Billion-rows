@@ -1,0 +1,42 @@
+# Youtube link: https://youtu.be/7QuU-2HZ1lY
+con <- dbConnect(duckdb())
+dbExecute(con, "
+  COPY (
+    SELECT
+      range                             AS order_id,
+      (range % 1000) + 1                AS store_id,
+      DATE '2024-01-01' + INTERVAL ((range % 730)) DAY AS order_date,
+      ROUND(RANDOM() * 500, 2)          AS amount,
+      ['Electronics','Clothing','Home','Sports','Books'][(range % 5) + 1] AS category
+    FROM range(1000000000)
+  ) TO 'sales.parquet' (FORMAT PARQUET)
+")
+
+sales <- tbl(con, "read_parquet('sales.parquet')")
+
+tic()
+sales |>
+  group_by(category) |>
+  summarise(
+    orders    = n(),
+    revenue   = sum(amount),
+    avg_order = mean(amount)
+  ) |>
+  arrange(desc(revenue)) |>
+  collect()
+toc()
+
+tic()
+new <- sales |>
+  filter(category == "Electronics")
+ggplot(new, aes(x = category, y = amount )) +
+  geom_boxplot(fill = "skyblue", color = "darkblue") +
+  labs(title = "Electronics revenue (from 1B rows)")
+toc()
+
+sales |>
+  group_by(category) |>
+  summarise(revenue = sum(amount)) |>
+  show_query()
+
+dbDisconnect(con, shutdown = TRUE)
