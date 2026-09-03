@@ -1,0 +1,14 @@
+timesfm3 <- import("timesfm3")
+
+tfm3 <- timesfm3$TimesFM3Forecaster$from_pretrained(
+  "google/timesfm-3.0-pytorch",
+  device = "cpu"
+)
+
+out3 <- tfm3$predict(
+  context          = np$array(as.numeric(train)),
+  horizon          = 12L,
+  return_quantiles = TRUE,
+  make_positive    = TRUE     
+
+pred_timesfm3 <- as.numeric(out3$forecast) 
