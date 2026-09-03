@@ -10,7 +10,7 @@ results <- data.frame(
 results_long <- pivot_longer(results, -c(month, Actual),
                              names_to = "Model", values_to = "value")
 
-ggplot(results_long, aes(month, value, color = Model)) +
+p <- ggplot(results_long, aes(month, value, color = Model)) +
   geom_line(linewidth = 1) +
   geom_point(size = 2) +
   geom_line(data = results, aes(month, Actual),
@@ -19,6 +19,7 @@ ggplot(results_long, aes(month, value, color = Model)) +
   scale_x_continuous(breaks = 1:12) +
   labs(title = "1960 forecasts vs actual (black dashed)",
        x = "Month (1960)", y = "Passengers (thousands)")
+print(p)
 
 # Accuracy metrics
 mape <- function(actual, pred) mean(abs((actual - pred) / actual)) * 100
