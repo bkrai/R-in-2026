@@ -34,8 +34,9 @@ plot_df <- data.frame(
   actual  = as.numeric(test),
   chronos = pred_chronos
 )
-ggplot(plot_df, aes(month)) +
+p <- ggplot(plot_df, aes(month)) +
   geom_line(aes(y = actual,  color = "Actual"),    linewidth = 1) +
   geom_line(aes(y = chronos, color = "Chronos-2"), linewidth = 1) +
   scale_x_continuous(breaks = 1:12) +
   labs(title = "Chronos-2 zero-shot forecast vs actual (1960)", y = "Passengers")
+print(p)
