@@ -10,5 +10,5 @@ out3 <- tfm3$predict(
   horizon          = 12L,
   return_quantiles = TRUE,
   make_positive    = TRUE     
-
+)
 pred_timesfm3 <- as.numeric(out3$forecast) 
