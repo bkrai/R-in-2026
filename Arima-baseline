@@ -1,0 +1,21 @@
+# Data 
+# Train/test split
+data("AirPassengers")
+train <- window(AirPassengers, end   = c(1959, 12))  # 132 months
+test  <- window(AirPassengers, start = c(1960, 1))   # 12 months
+h     <- 12
+
+autoplot(AirPassengers) +
+  geom_vline(xintercept = 1960, linetype = "dashed", color = "red") +
+  labs(title = "AirPassengers: everything left of the red line is context",
+       y = "Passengers (thousands)")
+
+# Classic baseline
+fit_arima <- auto.arima(train)
+fit_arima
+
+fc_arima <- forecast(fit_arima, h = h)
+autoplot(fc_arima) + autolayer(test, series = "Actual")
+
+# Point forecasts 
+pred_arima <- as.numeric(fc_arima$mean)
