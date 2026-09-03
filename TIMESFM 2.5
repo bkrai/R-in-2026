@@ -1,0 +1,29 @@
+timesfm <- import("timesfm")
+np      <- import("numpy")
+torch   <- import("torch")
+
+torch$set_float32_matmul_precision("high")   
+
+# Load pre-trained TimesFM 2.5 (200M parameters)
+tfm <- timesfm$TimesFM_2p5_200M_torch$from_pretrained(
+  "google/timesfm-2.5-200m-pytorch"
+)
+
+# Configure the forecast settings 
+tfm$compile(timesfm$ForecastConfig(
+  max_context                  = 1024L,
+  max_horizon                  = 256L,
+  normalize_inputs             = TRUE,
+  use_continuous_quantile_head = TRUE,
+  force_flip_invariance        = TRUE,
+  infer_is_positive            = TRUE,
+  fix_quantile_crossing        = TRUE
+))
+
+# Zero-shot forecast
+res <- tfm$forecast(
+  horizon = 12L,
+  inputs  = list(np$array(as.numeric(train)))
+)
+
+pred_timesfm <- as.numeric(res[[1]][1, ])
