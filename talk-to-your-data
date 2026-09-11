@@ -11,6 +11,8 @@ sales$channel <- sample(c("Online", "Retail"), nrow(sales), replace = TRUE)
 sales$units   <- round(rnorm(nrow(sales), mean = 500, sd = 80))
 sales$revenue <- round(sales$units * runif(nrow(sales), 18, 26), 2)
 
+str(sales)
+
 describe_data <- function(df, name = "df") {
   types <- vapply(df, function(x) class(x)[1], character(1))
   cols  <- paste0("- ", names(types), " <", types, ">", collapse = "\n")
