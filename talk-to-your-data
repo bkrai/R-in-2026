@@ -1,14 +1,6 @@
 # data
 set.seed(42)
-
 sales <- expand.grid(
   month  = seq(as.Date("2024-01-01"), as.Date("2025-12-01"), by = "month"),
   region = c("North", "South", "East", "West"),
   stringsAsFactors = FALSE)
-
-sales$channel <- sample(c("Online", "Retail"), nrow(sales), replace = TRUE)
-sales$units   <- round(rnorm(nrow(sales), mean = 500, sd = 80))
-sales$revenue <- round(sales$units * runif(nrow(sales), 18, 26), 2)
-
-str(sales)
-
