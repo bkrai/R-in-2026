@@ -3,3 +3,124 @@ set.seed(42)
 sales <- expand.grid(month  = seq(as.Date("2024-01-01"), as.Date("2025-12-01"), by = "month"),
   region = c("North", "South", "East", "West"),
   stringsAsFactors = FALSE)
+
+
+sales$channel <- sample(c("Online", "Retail"), nrow(sales), replace = TRUE)
+sales$units   <- round(rnorm(nrow(sales), mean = 500, sd = 80))
+sales$revenue <- round(sales$units * runif(nrow(sales), 18, 26), 2)
+
+str(sales)
+
+describe_data <- function(df, name = "df") {
+  types <- vapply(df, function(x) class(x)[1], character(1))
+  cols  <- paste0("- ", names(types), " <", types, ">", collapse = "\n")
+  
+  is_cat <- vapply(df, function(x) is.character(x) || is.factor(x), logical(1))
+  cats   <- ""
+  if (any(is_cat)) {
+    cats <- paste0(
+      "\nCategory values:\n",
+      paste0("- ", names(df)[is_cat], ": ",
+             vapply(df[is_cat],
+                    function(x) paste(head(unique(as.character(x)), 8), collapse = ", "),
+                    character(1)),
+             collapse = "\n")
+    )
+  }
+  
+  paste0("Data frame `", name, "`: ", nrow(df), " rows, ", ncol(df), " columns.\n",
+         "Columns:\n", cols, cats)
+}
+
+build_prompt <- function(question, schema) {
+  paste0(
+    "You write R code. Output ONLY runnable R code. No explanation, no markdown fences, no comments.
+
+Rules:
+- Use ggplot2 and dplyr only.
+- The data frame is already loaded and is named `sales`. Never create or read data.
+- Return a single expression that produces a ggplot object.
+- Use the exact column names and category values given below.
+- Add labs() with a short title and readable axis labels.
+- Use theme_minimal().
+
+", schema, "
+
+Request: ", question, "
+R code:")
+}
+
+
+ask_llm <- function(prompt, model = "qwen2.5-coder:7b") {
+  resp <- request("http://localhost:11434/api/generate") |>
+    req_body_json(list(
+      model   = model,
+      prompt  = prompt,
+      stream  = FALSE,
+      options = list(temperature = 0)
+    )) |>
+    req_timeout(180) |>
+    req_perform() |>
+    resp_body_json()
+  
+  resp$response
+}
+
+clean_code <- function(txt) {
+  fence <- regmatches(txt, regexpr("(?s)```(?:r|R)?\\s*(.*?)```", txt, perl = TRUE))
+  if (length(fence) > 0) {
+    txt <- gsub("^```(?:r|R)?\\s*|\\s*```$", "", fence[[1]], perl = TRUE)
+  }
+  trimws(txt)
+}
+
+is_safe <- function(code) {
+  banned <- c("system", "system2", "shell", "unlink", "file\\.remove", "file\\.create",
+              "download\\.file", "install\\.packages", "source", "readRDS", "saveRDS",
+              "writeLines", "write\\.csv", "setwd", "Sys\\.setenv", "eval", "library",
+              "require", "quit", "q")
+  
+  hit <- banned[vapply(banned, function(f) grepl(paste0("\\b", f, "\\s*\\("), code), logical(1))]
+  if (length(hit) > 0) {
+    return(paste0("Blocked call: ", paste(gsub("\\\\", "", hit), collapse = ", ")))
+  }
+  if (!grepl("ggplot\\s*\\(", code)) return("No ggplot() call found")
+  TRUE
+}
+
+ask_chart <- function(question, data = sales, model = "qwen2.5-coder:7b", tries = 3) {
+  schema <- describe_data(data, "sales")
+  prompt <- build_prompt(question, schema)
+  
+  for (i in seq_len(tries)) {
+    code <- clean_code(ask_llm(prompt, model))
+    
+    safe <- is_safe(code)
+    if (!isTRUE(safe)) {
+      message("[", i, "] rejected — ", safe)
+      prompt <- paste0(prompt, "\n\nThat code was rejected: ", safe,
+                       "\nReturn only a safe ggplot2 expression.\nR code:")
+      next
+    }
+    
+    result <- try({
+      p <- run_code(code, data)
+      ggplot_build(p)      # force evaluation — see Section 6
+      p
+    }, silent = TRUE)
+    
+    if (!inherits(result, "try-error")) {
+      message("[", i, "] success")
+      attr(result, "code") <- code
+      return(result)
+    }
+    
+    err <- conditionMessage(attr(result, "condition"))
+    message("[", i, "] failed — ", err)
+    prompt <- paste0(prompt, "\n", code,
+                     "\n\nThat code failed with this R error:\n", err,
+                     "\nFix it. Use only the columns listed above. Output only R code.\nR code:")
+  }
+  
+  stop("Could not generate working code after ", tries, " attempts.")
+}
