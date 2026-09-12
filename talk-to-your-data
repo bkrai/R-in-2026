@@ -71,6 +71,11 @@ clean_code <- function(txt) {
   }
   trimws(txt)
 }
+run_code <- function(code, data) {
+  env <- new.env(parent = globalenv())
+  assign("sales", data, envir = env)
+  eval(parse(text = code), envir = env)
+}
 
 is_safe <- function(code) {
   banned <- c("system", "system2", "shell", "unlink", "file\\.remove", "file\\.create",
