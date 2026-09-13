@@ -4,7 +4,6 @@ sales <- expand.grid(month  = seq(as.Date("2024-01-01"), as.Date("2025-12-01"), 
   region = c("North", "South", "East", "West"),
   stringsAsFactors = FALSE)
 
-
 sales$channel <- sample(c("Online", "Retail"), nrow(sales), replace = TRUE)
 sales$units   <- round(rnorm(nrow(sales), mean = 500, sd = 80))
 sales$revenue <- round(sales$units * runif(nrow(sales), 18, 26), 2)
@@ -33,7 +32,6 @@ describe_data <- function(df, name = "df") {
 build_prompt <- function(question, schema) {
   paste0(
     "You write R code. Output ONLY runnable R code. No explanation, no markdown fences, no comments.
-
 Rules:
 - Use ggplot2 and dplyr only.
 - The data frame is already loaded and is named `sales`. Never create or read data.
@@ -48,7 +46,6 @@ Request: ", question, "
 R code:")
 }
 
-
 ask_llm <- function(prompt, model = "qwen2.5-coder:7b") {
   resp <- request("http://localhost:11434/api/generate") |>
     req_body_json(list(
@@ -60,8 +57,7 @@ ask_llm <- function(prompt, model = "qwen2.5-coder:7b") {
     req_timeout(180) |>
     req_perform() |>
     resp_body_json()
-  
-  resp$response
+    resp$response
 }
 
 clean_code <- function(txt) {
@@ -94,19 +90,16 @@ is_safe <- function(code) {
 ask_chart <- function(question, data = sales, model = "qwen2.5-coder:7b", tries = 3) {
   schema <- describe_data(data, "sales")
   prompt <- build_prompt(question, schema)
-  
-  for (i in seq_len(tries)) {
+    for (i in seq_len(tries)) {
     code <- clean_code(ask_llm(prompt, model))
-    
-    safe <- is_safe(code)
+        safe <- is_safe(code)
     if (!isTRUE(safe)) {
       message("[", i, "] rejected — ", safe)
       prompt <- paste0(prompt, "\n\nThat code was rejected: ", safe,
                        "\nReturn only a safe ggplot2 expression.\nR code:")
       next
     }
-    
-    result <- try({
+        result <- try({
       p <- run_code(code, data)
       ggplot_build(p)      # force evaluation — see Section 6
       p
@@ -117,13 +110,11 @@ ask_chart <- function(question, data = sales, model = "qwen2.5-coder:7b", tries 
       attr(result, "code") <- code
       return(result)
     }
-    
-    err <- conditionMessage(attr(result, "condition"))
+        err <- conditionMessage(attr(result, "condition"))
     message("[", i, "] failed — ", err)
     prompt <- paste0(prompt, "\n", code,
                      "\n\nThat code failed with this R error:\n", err,
                      "\nFix it. Use only the columns listed above. Output only R code.\nR code:")
   }
-  
-  stop("Could not generate working code after ", tries, " attempts.")
+    stop("Could not generate working code after ", tries, " attempts.")
 }
