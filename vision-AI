@@ -1,0 +1,83 @@
+img_prep <- function(path, max_side = 1400) {
+  img  <- image_read(path)
+  info <- image_info(img)[1, ]
+  
+  if (max(info$width, info$height) > max_side) {
+    img <- image_resize(img, paste0(max_side, "x", max_side))
+  }
+  
+  out <- tempfile(fileext = ".png")
+  image_write(img, out, format = "png")
+  out
+}
+vision_ask <- function(image, prompt,
+                       model  = "qwen3.8:27b",
+                       schema = NULL,
+                       temperature = 0) {
+  
+  img_path <- img_prep(image)
+  
+  body <- list(
+    model      = model,
+    prompt     = prompt,
+    images     = list(base64encode(img_path)),
+    stream     = FALSE,
+    keep_alive = "10m",
+    think      = FALSE,
+    options    = list(
+      temperature = temperature,
+      num_ctx     = 8192,
+      num_predict = 2048
+    )
+  )
+  if (!is.null(schema)) body$format <- schema
+  
+  resp <- request("http://localhost:11434/api/generate") |>
+    req_body_json(body, auto_unbox = TRUE) |>
+    req_timeout(900) |>
+    req_error(body = function(resp) resp_body_string(resp)) |>
+    req_perform() |>
+    resp_body_json()
+  
+  out <- resp$response
+  if (is.null(schema)) out else fromJSON(out)
+}
+    chart_schema <- list(
+  type = "object",
+  properties = list(
+    title = list(type = "string"),
+    bars  = list(
+      type  = "array",
+      items = list(
+        type = "object",
+        properties = list(
+          label = list(type = "string"),
+          value = list(type = "number")
+        ),
+        required = list("label", "value")
+      )
+    )
+  ),
+  required = list("title", "bars")
+)
+
+    page_png <- function(pdf, page = 1, dpi = 220) {
+  bm  <- pdftools::pdf_render_page(pdf, page = page, dpi = dpi)
+  out <- tempfile(fileext = ".png")
+  png::writePNG(bm, out)
+  out
+}
+
+form_schema <- list(
+  type = "object",
+  properties = list(
+    vendor       = list(type = "string"),
+    invoice_no   = list(type = "string"),
+    invoice_date = list(type = "string", description = "ISO format YYYY-MM-DD"),
+    subtotal     = list(type = "number"),
+    tax          = list(type = "number"),
+    total        = list(type = "number"),
+    confidence   = list(type = "string", enum = list("high", "medium", "low"))
+  ),
+  required = list("vendor", "invoice_no", "total", "confidence")
+)
