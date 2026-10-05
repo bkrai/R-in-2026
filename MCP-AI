@@ -1,0 +1,93 @@
+suppressPackageStartupMessages({
+  library(ellmer)
+  library(dplyr)
+  library(mcptools)
+  library(ggplot2)
+})
+
+dat <- ggplot2::diamonds |>
+  mutate(
+    price_per_carat = price / carat,
+    across(where(is.ordered), \(x) factor(x, ordered = FALSE))
+  )
+
+as_text <- function(df) {
+  paste(capture.output(print(as.data.frame(df), row.names = FALSE)),
+        collapse = "\n")
+}
+
+describe_dataset <- function() {
+  info <- data.frame(
+    column  = names(dat),
+    type    = vapply(dat, \(x) class(x)[1], character(1)),
+    example = vapply(dat, \(x) paste(head(unique(as.character(x)), 3),
+                                     collapse = ", "), character(1))
+  )
+  paste0("Rows: ", nrow(dat), "\n", as_text(info))
+}
+
+tool_describe <- tool(
+  describe_dataset,
+  name = "describe_dataset",
+  description = "Describe the diamonds dataset: row count, column names,
+    types and example values. Call this FIRST before any analysis.",
+  arguments = list()
+)
+summarize_by <- function(group_col, value_col, stat) {
+  if (!group_col %in% names(dat)) stop("Unknown group_col: ", group_col)
+  if (!is.numeric(dat[[value_col]])) stop("value_col must be a numeric column")
+  f <- switch(stat, mean = mean, median = median, sd = sd, min = min, max = max)
+  
+  dat |>
+    group_by(.data[[group_col]]) |>
+    summarise(n = n(), result = f(.data[[value_col]], na.rm = TRUE)) |>
+    arrange(desc(result)) |>
+    rename(!!paste(stat, value_col, sep = "_") := result) |>
+    as_text()
+}
+
+tool_summarize <- tool(
+  summarize_by,
+  name = "summarize_by",
+  description = "Group the data by one column and compute a summary
+    statistic of a numeric column. Returns n and the statistic per group.",
+  arguments = list(
+    group_col = type_string("Column to group by, e.g. 'cut', 'color', 'clarity'"),
+    value_col = type_string("Numeric column to summarize, e.g. 'price', 'price_per_carat'"),
+    stat      = type_enum(values = c("mean", "median", "sd", "min", "max"),
+                          description = "Statistic to compute")
+  )
+)
+
+allowed_fns <- c("~", "+", "-", "*", ":", "(", "^", "/", "log", "I")
+
+fit_model <- function(formula) {
+  expr <- str2lang(formula)                  # parse only, nothing runs
+  if (!is.call(expr) || !identical(expr[[1]], as.name("~")))
+    stop("Must be a formula like 'price ~ carat + cut'")
+  
+  bad_vars <- setdiff(all.vars(expr), names(dat))
+  if (length(bad_vars)) stop("Unknown columns: ", toString(bad_vars))
+  
+  bad_fns <- setdiff(all.names(expr), c(all.vars(expr), allowed_fns))
+  if (length(bad_fns)) stop("Not allowed in formula: ", toString(bad_fns))
+  
+  fit <- lm(eval(expr), data = dat)          # safe now
+  s   <- summary(fit)
+  co  <- as.data.frame(round(s$coefficients, 4))
+  co  <- cbind(term = rownames(co), co)
+  paste0("Formula: ", formula,
+         "\nR-squared: ", round(s$r.squared, 4), " | n = ", nobs(fit),
+         "\n", as_text(co))
+}
+
+tool_model <- tool(
+  fit_model,
+  name = "fit_model",
+  description = "Fit a linear regression with lm() on the diamonds data.
+    Returns coefficients, standard errors, p-values and R-squared.
+    Allowed: column names, + - * : ^ /, log(), I().",
+  arguments = list(
+    formula = type_string("R model formula, e.g. 'log(price) ~ log(carat) + cut'")
+  )
+)
