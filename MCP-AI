@@ -11,6 +11,7 @@ dat <- ggplot2::diamonds |>
     across(where(is.ordered), \(x) factor(x, ordered = FALSE))
   )
 
+# Turn a table into plain text the model can read
 as_text <- function(df) {
   paste(capture.output(print(as.data.frame(df), row.names = FALSE)),
         collapse = "\n")
@@ -33,11 +34,14 @@ tool_describe <- tool(
     types and example values. Call this FIRST before any analysis.",
   arguments = list()
 )
+
 summarize_by <- function(group_col, value_col, stat) {
   if (!group_col %in% names(dat)) stop("Unknown group_col: ", group_col)
+  if (!value_col %in% names(dat)) stop("Unknown value_col: ", value_col)
   if (!is.numeric(dat[[value_col]])) stop("value_col must be a numeric column")
-  f <- switch(stat, mean = mean, median = median, sd = sd, min = min, max = max)
-  
+  f <- switch(stat, mean = mean, median = median, sd = sd, min = min, max = max,
+              stop("stat must be one of: mean, median, sd, min, max"))
+
   dat |>
     group_by(.data[[group_col]]) |>
     summarise(n = n(), result = f(.data[[value_col]], na.rm = TRUE)) |>
@@ -65,13 +69,13 @@ fit_model <- function(formula) {
   expr <- str2lang(formula)                  # parse only, nothing runs
   if (!is.call(expr) || !identical(expr[[1]], as.name("~")))
     stop("Must be a formula like 'price ~ carat + cut'")
-  
+
   bad_vars <- setdiff(all.vars(expr), names(dat))
   if (length(bad_vars)) stop("Unknown columns: ", toString(bad_vars))
-  
+
   bad_fns <- setdiff(all.names(expr), c(all.vars(expr), allowed_fns))
   if (length(bad_fns)) stop("Not allowed in formula: ", toString(bad_fns))
-  
+
   fit <- lm(eval(expr), data = dat)          # safe now
   s   <- summary(fit)
   co  <- as.data.frame(round(s$coefficients, 4))
@@ -91,3 +95,5 @@ tool_model <- tool(
     formula = type_string("R model formula, e.g. 'log(price) ~ log(carat) + cut'")
   )
 )
+
+list(tool_describe, tool_summarize, tool_model)
