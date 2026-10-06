@@ -16,7 +16,6 @@ as_text <- function(df) {
   paste(capture.output(print(as.data.frame(df), row.names = FALSE)),
         collapse = "\n")
 }
-
 describe_dataset <- function() {
   info <- data.frame(
     column  = names(dat),
@@ -97,3 +96,4 @@ tool_model <- tool(
 )
 
 list(tool_describe, tool_summarize, tool_model)
+
