@@ -1,0 +1,102 @@
+library(audio.whisper)
+library(av)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(tidytext)
+library(topicmodels)
+
+to_wav16k <- function(path) {
+  out <- tempfile(fileext = ".wav")
+  av_audio_convert(path, output = out, format = "wav",
+                   sample_rate = 16000, channels = 1, verbose = FALSE)
+  out}
+
+transcribe <- function(path, model, language = "en", n_threads = 8) {
+  wav <- to_wav16k(path)
+  predict(model, newdata = wav, language = language,
+          n_threads = n_threads, vad = TRUE)   # VAD: skip silence -> fewer hallucinations
+}
+
+hms_to_sec <- function(x) {
+  p <- str_split_fixed(x, ":", 3)
+  as.numeric(p[, 1]) * 3600 + as.numeric(p[, 2]) * 60 + as.numeric(p[, 3])
+}
+
+cache_file <- sub("\\.[^.]+$", "_transcript.rds", audio_file)
+
+if (file.exists(cache_file)) {
+  segs <- readRDS(cache_file)              
+} else {
+  timing <- system.time(trans <- transcribe(audio_file, model))
+  print(timing)
+  segs <- trans$data |>
+    mutate(start  = hms_to_sec(from),
+           end    = hms_to_sec(to),
+           minute = floor(start / 60))
+  saveRDS(segs, cache_file)
+}
+custom_stop <- tibble(word = c("yeah", "gonna", "um", "uh", "okay", "ok",
+                               "kind", "sort", "lot", "guys", "basically"))
+
+words <- segs |>
+  unnest_tokens(word, text) |>
+  anti_join(stop_words,  by = "word") |>
+  anti_join(custom_stop, by = "word") |>
+  filter(!str_detect(word, "^[0-9.,%$]+$"))
+
+plot1 <- words |>
+  count(word, sort = TRUE) |>
+  slice_head(n = 20) |>
+  ggplot(aes(n, reorder(word, n))) +
+  geom_col(fill = "steelblue") +
+  labs(x = "Count", y = NULL, title = "Most-used words in the recording") +
+  theme_minimal(base_size = 14)
+
+arc <- words |>
+  inner_join(get_sentiments("bing"), by = "word", relationship = "many-to-many") |>
+  count(minute, sentiment) |>
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) |>
+  mutate(net = positive - negative)
+
+plot2 <- ggplot(arc, aes(minute, net)) +
+  geom_col(aes(fill = net > 0), show.legend = FALSE) +
+  geom_smooth(se = FALSE, span = 0.5, colour = "black", linewidth = 0.8) +
+  scale_fill_manual(values = c("TRUE" = "#2E7D32", "FALSE" = "#C62828")) +
+  labs(x = "Minute", y = "Net sentiment (positive - negative)",
+       title = "Sentiment arc, minute by minute") +
+  theme_minimal(base_size = 14)
+
+dtm <- words |>
+  mutate(chunk = start %/% 120) |>
+  count(chunk, word) |>
+  cast_dtm(chunk, word, n)
+
+lda <- LDA(dtm, k = 4, control = list(seed = 2026))
+
+plot3 <- tidy(lda, matrix = "beta") |>
+  group_by(topic) |>
+  slice_max(beta, n = 8) |>
+  ungroup() |>
+  ggplot(aes(beta, reorder_within(term, beta, topic), fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free_y") +
+  scale_y_reordered() +
+  labs(x = "Word probability within topic", y = NULL,
+       title = "What each topic is about") +
+  theme_minimal(base_size = 13)
+
+plot4 <- tidy(lda, matrix = "gamma") |>
+  mutate(minute = as.numeric(document) * 2) |>
+  ggplot(aes(minute, gamma, fill = factor(topic))) +
+  geom_area(position = "fill") +
+  labs(x = "Minute", y = "Share of chunk", fill = "Topic",
+       title = "Which topic owns which part of the recording") +
+  theme_minimal(base_size = 14)
+
+find_in_audio <- function(segs, pattern) {
+  segs |>
+    filter(str_detect(str_to_lower(text), str_to_lower(pattern))) |>
+    select(from, text)
+}
