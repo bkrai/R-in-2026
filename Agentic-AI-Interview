@@ -1,0 +1,127 @@
+library(ollamar)
+library(ellmer)
+
+new_chat <- function(system_prompt = NULL) {
+  chat_ollama(model = MODEL, system_prompt = system_prompt)
+}
+
+# airquality
+monthly_means <- function(column) {
+  if (!column %in% c("Ozone", "Solar.R", "Wind", "Temp")) {
+    return(paste("Unknown column:", column, "- use Ozone, Solar.R, Wind or Temp"))
+  }
+  m <- tapply(airquality[[column]], airquality$Month, mean, na.rm = TRUE)
+  paste(paste0("Month ", names(m), ": ", round(m, 2)), collapse = "\n")
+}
+
+tool_monthly_means <- tool(
+  monthly_means,
+  description = "Returns the mean of one airquality column for each month
+    (5 = May, 6 = June, 7 = July, 8 = August, 9 = September).",
+  arguments = list(
+    column = type_string("Column name: one of Ozone, Solar.R, Wind, Temp")
+  ),
+  name = "monthly_means"
+)
+
+new_agent <- function() {
+  ag <- new_chat(system_prompt = "You are a careful data analyst working with
+    the airquality dataset. Use your tools to get numbers. Never guess a number.")
+  ag$register_tool(tool_monthly_means)
+  ag
+}
+
+#Q2
+agent <- new_agent()
+
+agent$on_tool_request(function(request) {
+  cat("\n>>> MODEL ASKS R TO RUN:", request@name,
+      jsonlite::toJSON(request@arguments, auto_unbox = TRUE), "\n")
+})
+agent$on_tool_result(function(result) {
+  cat("<<< R SENDS BACK:\n", format(result@value), "\n\n")
+})
+
+#Q3
+policies <- c(
+  "DataNest refund policy: annual plans can be refunded within 14 days of purchase. Monthly plans are non-refundable.",
+  "DataNest support hours: live chat is available Monday to Friday, 9am to 6pm Eastern. Email support replies within 24 hours.",
+  "DataNest student discount: verified students get 40 percent off any plan for up to 2 years.",
+  "DataNest data retention: deleted projects are kept for 30 days and then permanently erased.",
+  "DataNest API limits: free accounts can make 1,000 API calls per day; Pro accounts get 50,000."
+)
+
+#Q3b
+stop_words <- c("a", "an", "the", "i", "my", "can", "get", "on", "of", "to",
+                "is", "are", "for", "and", "or", "in", "after", "what", "do")
+tokens <- function(x) {
+  w <- tolower(unlist(strsplit(x, "[^A-Za-z0-9]+")))
+  unique(setdiff(w, c("", stop_words)))
+}
+retrieve <- function(query, docs = policies, k = 2) {
+  score <- vapply(docs, function(d) length(intersect(tokens(query), tokens(d))),
+                  numeric(1))
+  unname(docs[order(score, decreasing = TRUE)][seq_len(k)])
+}
+
+# Q3d
+tool_search_policies <- tool(
+  function(query) paste(retrieve(query), collapse = "\n"),
+  description = "Searches DataNest company policies and returns the most relevant passages.",
+  arguments = list(query = type_string("What to search for")),
+  name = "search_policies"
+)
+support_bot <- new_chat("You are DataNest support. Always search policies before answering.")
+support_bot$register_tool(tool_search_policies)
+
+#Q6
+m <- function(col, mon) mean(airquality[[col]][airquality$Month == mon], na.rm = TRUE)
+
+eval_set <- data.frame(
+  question2 = c(
+    "What is the average temperature in July (month 7)?",
+    "What is the average wind speed in May (month 5)?",
+    "What is the average ozone level in August (month 8)?",
+    "Which month number has the highest average temperature?"
+  ),
+  truth = c(m("Temp", 7), m("Wind", 5), m("Ozone", 8),
+            as.numeric(names(which.max(tapply(airquality$Temp, airquality$Month, mean)))))
+)
+
+run_case <- function(q) {
+  tools_called <- character()
+  ag <- new_agent()
+  ag$on_tool_request(function(request) tools_called <<- c(tools_called, request@name))
+  ag$chat(q, echo = "none")
+  final <- ag$chat_structured("Return only the final numeric answer.",
+                              type = type_object(answer = type_number("The number")))
+  data.frame(answer = final$answer, used_tool = length(tools_called) > 0)
+}
+
+results <- do.call(rbind, lapply(eval_set$question2, run_case))
+scored  <- cbind(eval_set, results)
+scored$correct <- abs(scored$answer - scored$truth) < 0.1
+
+#Q7
+send_email <- function(to, body) {
+  # A demo: we only print. In real life this would actually send.
+  paste("Email sent to", to)
+}
+tool_send_email <- tool(
+  send_email,
+  description = "Sends an email on behalf of the company.",
+  arguments = list(to = type_string("Recipient email address"),
+                   body = type_string("Email body")),
+  name = "send_email"
+)
+
+assistant <- new_chat("You are an inbox assistant. Read customer emails and take helpful actions.")
+assistant$register_tool(tool_send_email)
+
+assistant$on_tool_request(function(request) {
+  if (request@name == "send_email") {
+    cat("\n!!! Agent wants to email:", request@arguments$to, "\n")
+    ok <- if (interactive()) readline("Allow? (y/n) ") else "n"
+    if (tolower(ok) != "y") tool_reject("A human reviewer blocked this email.")
+  }
+})
